@@ -1,0 +1,82 @@
+# docker-compose.yml (infra/docker-compose.yml)
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: forecasting_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: forecasting_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infra/postgres_data:/var/lib/postgresql/data
+    networks:
+      - forecast_net
+
+  minio:
+    image: minio/minio
+    container_name: forecasting_minio
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    command: server /data
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./infra/minio_data:/data
+    networks:
+      - forecast_net
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: forecasting_mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      BACKEND_STORE_URI: sqlite:///mlflow.db
+      ARTIFACT_ROOT: ./mlruns
+    networks:
+      - forecast_net
+
+  airflow:
+    image: apache/airflow:2.8.1
+    container_name: forecasting_airflow
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=sqlite:///airflow.db
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+    command: bash -c "airflow db init && airflow webserver & airflow scheduler"
+    ports:
+      - "8080:8080"
+    networks:
+      - forecast_net
+
+  fastapi:
+    build: ./api
+    container_name: forecasting_fastapi
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    networks:
+      - forecast_net
+
+  # temporal frontend
+  streamlit:
+    build: ./dashboard
+    container_name: forecasting_streamlit
+    ports:
+      - "8501:8501"
+    depends_on:
+      - fastapi
+      - postgres
+    networks:
+      - forecast_net
+
+networks:
+  forecast_net:
+    driver: bridge
